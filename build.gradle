@@ -19,6 +19,7 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:3.0.1'
         classpath 'com.novoda:bintray-release:0.5.0'
+        classpath 'com.github.dcendents:android-maven-gradle-plugin:1.5'
     }
     // Workaround for the following test coverage issue. Remove when fixed:
     // https://code.google.com/p/android/issues/detail?id=226070
@@ -46,3 +47,5 @@ allprojects {
 }
 
 apply from: 'javadoc_combined.gradle'
+apply plugin: 'com.github.dcendents.android-maven'
+group='com.github.TadeoArmenta'
