@@ -30,5 +30,4 @@ dependencies {
     androidTestCompile project(modulePrefix + 'library-hls')
     androidTestCompile project(modulePrefix + 'testutils')
 }
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
+

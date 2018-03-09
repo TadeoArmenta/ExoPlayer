@@ -51,5 +51,4 @@ ext {
     releaseDescription = 'The ExoPlayer library HLS module.'
 }
 apply from: '../../publish.gradle'
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
+

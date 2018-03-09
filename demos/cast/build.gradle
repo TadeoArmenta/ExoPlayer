@@ -50,5 +50,4 @@ dependencies {
     compile project(modulePrefix + 'extension-cast')
     compile 'com.android.support:recyclerview-v7:' + supportLibraryVersion
 }
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
+

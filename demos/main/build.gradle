@@ -67,5 +67,4 @@ dependencies {
     withExtensionsCompile project(path: modulePrefix + 'extension-vp9')
     withExtensionsCompile project(path: modulePrefix + 'extension-rtmp')
 }
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
+

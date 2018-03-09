@@ -38,5 +38,4 @@ ext {
     javadocTitle = 'Opus extension'
 }
 apply from: '../../javadoc_library.gradle'
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
+

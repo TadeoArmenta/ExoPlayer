@@ -30,3 +30,11 @@ def getBintrayRepo() {
         property('publicRepo').toBoolean()
     return publicRepo ? 'exoplayer' : 'exoplayer-test'
 }
+
+configurations.all {
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+
+apply plugin: 'maven'
+
+group = 'com.github.TadeoArmenta'

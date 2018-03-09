@@ -36,5 +36,4 @@ dependencies {
     compile 'org.mockito:mockito-core:' + mockitoVersion
     compile 'com.google.truth:truth:' + truthVersion
 }
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
+
