@@ -16,6 +16,7 @@
 package com.google.android.exoplayer2.demo;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -24,6 +25,7 @@ import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -38,6 +40,7 @@ import com.google.android.exoplayer2.C.ContentType;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.PlaybackPreparer;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
@@ -54,6 +57,8 @@ import com.google.android.exoplayer2.source.ConcatenatingMediaSource;
 import com.google.android.exoplayer2.source.ExtractorMediaSource;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.MediaSourceEventListener;
+import com.google.android.exoplayer2.source.MergingMediaSource;
+import com.google.android.exoplayer2.source.SingleSampleMediaSource;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.source.ads.AdsLoader;
 import com.google.android.exoplayer2.source.ads.AdsMediaSource;
@@ -72,8 +77,11 @@ import com.google.android.exoplayer2.ui.PlayerControlView;
 import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 import com.google.android.exoplayer2.upstream.HttpDataSource;
 import com.google.android.exoplayer2.util.EventLogger;
+import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 import java.lang.reflect.Constructor;
 import java.net.CookieHandler;
@@ -84,7 +92,7 @@ import java.util.UUID;
 /** An activity that plays media using {@link SimpleExoPlayer}. */
 public class PlayerActivity extends Activity
     implements OnClickListener, PlaybackPreparer, PlayerControlView.VisibilityListener {
-
+  public static final String SUBTITLES = "";
   public static final String DRM_SCHEME_EXTRA = "drm_scheme";
   public static final String DRM_LICENSE_URL = "drm_license_url";
   public static final String DRM_KEY_REQUEST_PROPERTIES = "drm_key_request_properties";
@@ -103,7 +111,6 @@ public class PlayerActivity extends Activity
   // For backwards compatibility.
   private static final String DRM_SCHEME_UUID_EXTRA = "drm_scheme_uuid";
 
-  private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
   private static final CookieManager DEFAULT_COOKIE_MANAGER;
   static {
     DEFAULT_COOKIE_MANAGER = new CookieManager();
@@ -123,6 +130,7 @@ public class PlayerActivity extends Activity
   private DebugTextViewHelper debugViewHelper;
   private boolean inErrorState;
   private TrackGroupArray lastSeenTrackGroupArray;
+  private String subtitle;
 
   private boolean shouldAutoPlay;
   private int resumeWindow;
@@ -133,6 +141,8 @@ public class PlayerActivity extends Activity
   private AdsLoader adsLoader;
   private Uri loadedAdTagUri;
   private ViewGroup adUiViewGroup;
+  private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
+  public DefaultBandwidthMeter bandwidthMeter;
 
   // Activity lifecycle
 
@@ -141,17 +151,22 @@ public class PlayerActivity extends Activity
     super.onCreate(savedInstanceState);
     shouldAutoPlay = true;
     clearResumePosition();
+    this.bandwidthMeter = new DefaultBandwidthMeter();
     mediaDataSourceFactory = buildDataSourceFactory(true);
     mainHandler = new Handler();
     if (CookieHandler.getDefault() != DEFAULT_COOKIE_MANAGER) {
       CookieHandler.setDefault(DEFAULT_COOKIE_MANAGER);
     }
-
+    Intent intent = getIntent();
+    subtitle = intent.getStringExtra(SUBTITLES);
+    Log.v("SUBS",subtitle);
     setContentView(R.layout.player_activity);
     View rootView = findViewById(R.id.root);
     rootView.setOnClickListener(this);
     debugRootView = findViewById(R.id.controls_root);
     debugTextView = findViewById(R.id.debug_text_view);
+
+    this.
 
     playerView = findViewById(R.id.player_view);
     playerView.setControllerVisibilityListener(this);
@@ -251,6 +266,25 @@ public class PlayerActivity extends Activity
   }
 
   // Internal methods
+  private DataSource.Factory getDataSourceFactory(boolean preview) {
+    return new DefaultDataSourceFactory(getApplicationContext(),preview ? null:bandwidthMeter,getHttpDataSourceFactory(preview));
+  }
+  private DataSource.Factory getHttpDataSourceFactory(boolean preview) {
+    Context c = (Context) getApplicationContext();
+    return new DefaultHttpDataSourceFactory(Util.getUserAgent(c,
+            "elbrazodealbanil"), preview ? null : bandwidthMeter);
+  }
+  public MediaSource getSubtitleSource(boolean preview) {
+    if (subtitle != null && !subtitle.equals("")) {
+      Uri uri = Uri.parse(subtitle);
+      Format textFormat = Format.createTextSampleFormat("0", MimeTypes.APPLICATION_SUBRIP, Format.NO_VALUE, "es", null);
+      MediaSource subtitleSource = new SingleSampleMediaSource(uri, getDataSourceFactory(preview), textFormat, C.TIME_UNSET);
+
+      return subtitleSource;
+    }
+    return null;
+
+  }
 
   private void initializePlayer() {
     Intent intent = getIntent();
@@ -366,7 +400,16 @@ public class PlayerActivity extends Activity
     if (haveResumePosition) {
       player.seekTo(resumeWindow, resumePosition);
     }
-    player.prepare(mediaSource, !haveResumePosition, false);
+    MediaSource subtitlesource = getSubtitleSource(false);
+    if (subtitlesource != null){
+
+      MergingMediaSource mergedSource =
+              new MergingMediaSource(mediaSource, subtitlesource);
+      player.prepare(mergedSource);
+    }else{
+      player.prepare(mediaSource, !haveResumePosition, false);
+    }
+
     inErrorState = false;
     updateButtonVisibilities();
   }
@@ -609,20 +652,20 @@ public class PlayerActivity extends Activity
         if (cause instanceof DecoderInitializationException) {
           // Special case for decoder initialization failures.
           DecoderInitializationException decoderInitializationException =
-              (DecoderInitializationException) cause;
+                  (DecoderInitializationException) cause;
           if (decoderInitializationException.decoderName == null) {
             if (decoderInitializationException.getCause() instanceof DecoderQueryException) {
               errorString = getString(R.string.error_querying_decoders);
             } else if (decoderInitializationException.secureDecoderRequired) {
               errorString = getString(R.string.error_no_secure_decoder,
-                  decoderInitializationException.mimeType);
+                      decoderInitializationException.mimeType);
             } else {
               errorString = getString(R.string.error_no_decoder,
-                  decoderInitializationException.mimeType);
+                      decoderInitializationException.mimeType);
             }
           } else {
             errorString = getString(R.string.error_instantiating_decoder,
-                decoderInitializationException.decoderName);
+                    decoderInitializationException.decoderName);
           }
         }
       }
@@ -648,11 +691,11 @@ public class PlayerActivity extends Activity
         MappedTrackInfo mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
         if (mappedTrackInfo != null) {
           if (mappedTrackInfo.getTrackTypeRendererSupport(C.TRACK_TYPE_VIDEO)
-              == MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
+                  == MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
             showToast(R.string.error_unsupported_video);
           }
           if (mappedTrackInfo.getTrackTypeRendererSupport(C.TRACK_TYPE_AUDIO)
-              == MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
+                  == MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
             showToast(R.string.error_unsupported_audio);
           }
         }
@@ -661,5 +704,4 @@ public class PlayerActivity extends Activity
     }
 
   }
-
 }

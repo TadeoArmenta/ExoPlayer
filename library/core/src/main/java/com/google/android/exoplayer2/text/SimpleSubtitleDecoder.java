@@ -17,6 +17,10 @@ package com.google.android.exoplayer2.text;
 
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.decoder.SimpleDecoder;
+import com.ibm.icu.text.CharsetDetector;
+import com.ibm.icu.text.CharsetMatch;
+
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 /**
@@ -72,14 +76,27 @@ public abstract class SimpleSubtitleDecoder extends
       SubtitleOutputBuffer outputBuffer, boolean reset) {
     try {
       ByteBuffer inputData = inputBuffer.data;
-      Subtitle subtitle = decode(inputData.array(), inputData.limit(), reset);
-      outputBuffer.setContent(inputBuffer.timeUs, subtitle, inputBuffer.subsampleOffsetUs);
-      // Clear BUFFER_FLAG_DECODE_ONLY (see [Internal: b/27893809]).
-      outputBuffer.clearFlag(C.BUFFER_FLAG_DECODE_ONLY);
+
+      // ICU4J library
+      CharsetDetector detector = new CharsetDetector();
+      detector.setText(inputData.array());
+      CharsetMatch charsetMatch = detector.detect();
+
+      try {
+        byte[] array = charsetMatch.getString().getBytes();
+        Subtitle subtitle = decode(array, array.length, reset);
+        outputBuffer.setContent(inputBuffer.timeUs, subtitle, inputBuffer.subsampleOffsetUs);
+        // Clear BUFFER_FLAG_DECODE_ONLY (see [Internal: b/27893809]).
+        outputBuffer.clearFlag(C.BUFFER_FLAG_DECODE_ONLY);
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
       return null;
     } catch (SubtitleDecoderException e) {
       return e;
     }
+
+
   }
 
   /**

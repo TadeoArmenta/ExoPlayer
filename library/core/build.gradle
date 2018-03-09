@@ -45,6 +45,8 @@ android {
 
 dependencies {
     compile 'com.android.support:support-annotations:' + supportLibraryVersion
+    // https://mvnrepository.com/artifact/com.ibm.icu/icu4j
+    compile group: 'com.ibm.icu', name: 'icu4j', version: '60.2'
     androidTestCompile 'com.google.dexmaker:dexmaker:' + dexmakerVersion
     androidTestCompile 'com.google.dexmaker:dexmaker-mockito:' + dexmakerVersion
     androidTestCompile 'com.google.truth:truth:' + truthVersion

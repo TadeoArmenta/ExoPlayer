@@ -73,6 +73,7 @@ public class SampleChooserActivity extends Activity {
           }
         }
       } catch (IOException e) {
+        e.printStackTrace();
         Toast.makeText(getApplicationContext(), R.string.sample_list_load_error, Toast.LENGTH_LONG)
             .show();
       }
@@ -177,6 +178,7 @@ public class SampleChooserActivity extends Activity {
     private Sample readEntry(JsonReader reader, boolean insidePlaylist) throws IOException {
       String sampleName = null;
       String uri = null;
+      String subtitle = "";
       String extension = null;
       UUID drmUuid = null;
       String drmLicenseUrl = null;
@@ -190,6 +192,9 @@ public class SampleChooserActivity extends Activity {
       while (reader.hasNext()) {
         String name = reader.nextName();
         switch (name) {
+            case "subtitles":
+                subtitle = reader.nextString();
+                break;
           case "name":
             sampleName = reader.nextString();
             break;
@@ -256,7 +261,7 @@ public class SampleChooserActivity extends Activity {
             playlistSamplesArray);
       } else {
         return new UriSample(sampleName, preferExtensionDecoders, drmInfo, uri, extension,
-            adTagUri);
+            adTagUri, subtitle);
       }
     }
 
@@ -388,16 +393,24 @@ public class SampleChooserActivity extends Activity {
     public final String name;
     public final boolean preferExtensionDecoders;
     public final DrmInfo drmInfo;
+    public  String subtitle;
 
     public Sample(String name, boolean preferExtensionDecoders, DrmInfo drmInfo) {
       this.name = name;
       this.preferExtensionDecoders = preferExtensionDecoders;
       this.drmInfo = drmInfo;
     }
+    public Sample(String name, boolean preferExtensionDecoders, DrmInfo drmInfo,String subtitle ) {
+      this.name = name;
+      this.preferExtensionDecoders = preferExtensionDecoders;
+      this.drmInfo = drmInfo;
+      this.subtitle = subtitle;
+    }
 
     public Intent buildIntent(Context context) {
       Intent intent = new Intent(context, PlayerActivity.class);
       intent.putExtra(PlayerActivity.PREFER_EXTENSION_DECODERS, preferExtensionDecoders);
+      intent.putExtra(PlayerActivity.SUBTITLES,this.subtitle);
       if (drmInfo != null) {
         drmInfo.updateIntent(intent);
       }
@@ -412,6 +425,7 @@ public class SampleChooserActivity extends Activity {
     public final String uri;
     public final String extension;
     public final String adTagUri;
+    public  String subtitle;
 
     public UriSample(String name, boolean preferExtensionDecoders, DrmInfo drmInfo, String uri,
         String extension, String adTagUri) {
@@ -420,13 +434,21 @@ public class SampleChooserActivity extends Activity {
       this.extension = extension;
       this.adTagUri = adTagUri;
     }
-
+    public UriSample(String name, boolean preferExtensionDecoders, DrmInfo drmInfo, String uri,
+        String extension, String adTagUri,String subtitles) {
+      super(name, preferExtensionDecoders, drmInfo);
+      this.uri = uri;
+      this.extension = extension;
+      this.adTagUri = adTagUri;
+      this.subtitle = subtitles;
+    }
     @Override
     public Intent buildIntent(Context context) {
       return super.buildIntent(context)
           .setData(Uri.parse(uri))
           .putExtra(PlayerActivity.EXTENSION_EXTRA, extension)
           .putExtra(PlayerActivity.AD_TAG_URI_EXTRA, adTagUri)
+              .putExtra(PlayerActivity.SUBTITLES,this.subtitle)
           .setAction(PlayerActivity.ACTION_VIEW);
     }
 

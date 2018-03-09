@@ -376,6 +376,11 @@
     "name": "Misc",
     "samples": [
       {
+        "name": "Subtitles with non utf8 encoding",
+        "uri": "https://storage.googleapis.com/exoplayer-test-media-1/mkv/android-screens-lavf-56.36.100-aac-avc-main-1280x720.mkv",
+        "subtitles":"http://bigman.co/es.srt"
+      },
+      {
         "name": "Dizzy",
         "uri": "https://html5demos.com/assets/dizzy.mp4"
       },
