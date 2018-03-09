@@ -48,3 +48,5 @@ dependencies {
     compile project(modulePrefix + 'library-smoothstreaming')
     compile project(modulePrefix + 'extension-ima')
 }
+apply plugin: 'com.github.dcendents.android-maven'
+group='com.github.TadeoArmenta'

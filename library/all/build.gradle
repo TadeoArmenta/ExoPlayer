@@ -37,3 +37,5 @@ ext {
     releaseDescription = 'The ExoPlayer library (all modules).'
 }
 apply from: '../../publish.gradle'
+apply plugin: 'com.github.dcendents.android-maven'
+group='com.github.TadeoArmenta'

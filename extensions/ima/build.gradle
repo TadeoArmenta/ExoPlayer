@@ -54,3 +54,5 @@ ext {
     releaseDescription = 'Interactive Media Ads extension for ExoPlayer.'
 }
 apply from: '../../publish.gradle'
+apply plugin: 'com.github.dcendents.android-maven'
+group='com.github.TadeoArmenta'

@@ -47,5 +47,3 @@ allprojects {
 }
 
 apply from: 'javadoc_combined.gradle'
-apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.TadeoArmenta'
