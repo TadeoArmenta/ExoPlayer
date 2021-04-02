@@ -15,72 +15,103 @@
  */
 package com.google.android.exoplayer2.testutil;
 
-import android.support.annotation.NonNull;
-import com.google.android.exoplayer2.ExoPlaybackException;
-import com.google.android.exoplayer2.RendererCapabilities;
+import androidx.test.core.app.ApplicationProvider;
+import com.google.android.exoplayer2.RendererCapabilities.AdaptiveSupport;
+import com.google.android.exoplayer2.RendererCapabilities.Capabilities;
+import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.source.MediaSource.MediaPeriodId;
 import com.google.android.exoplayer2.source.TrackGroup;
 import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
 import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.upstream.BandwidthMeter;
 import java.util.ArrayList;
 import java.util.List;
+import org.checkerframework.checker.nullness.compatqual.NullableType;
 
-/**
- * A fake {@link MappingTrackSelector} that returns {@link FakeTrackSelection}s.
- */
-public class FakeTrackSelector extends MappingTrackSelector {
+/** A fake {@link MappingTrackSelector} that returns {@link FakeTrackSelection}s. */
+public class FakeTrackSelector extends DefaultTrackSelector {
 
-  private final List<FakeTrackSelection> selectedTrackSelections = new ArrayList<>();
-  private final boolean mayReuseTrackSelection;
+  private final FakeTrackSelectionFactory fakeTrackSelectionFactory;
 
   public FakeTrackSelector() {
-    this(false);
+    this(/* mayReuseTrackSelection= */ false);
   }
 
   /**
-   * @param mayReuseTrackSelection Whether this {@link FakeTrackSelector} will reuse
-   * {@link TrackSelection}s during track selection, when it finds previously-selected track
-   * selection using the same {@link TrackGroup}.
+   * @param mayReuseTrackSelection Whether this {@link FakeTrackSelector} will reuse {@link
+   *     ExoTrackSelection}s during track selection, when it finds previously-selected track
+   *     selection using the same {@link TrackGroup}.
    */
   public FakeTrackSelector(boolean mayReuseTrackSelection) {
-    this.mayReuseTrackSelection = mayReuseTrackSelection;
+    this(new FakeTrackSelectionFactory(mayReuseTrackSelection));
+  }
+
+  private FakeTrackSelector(FakeTrackSelectionFactory fakeTrackSelectionFactory) {
+    super(ApplicationProvider.getApplicationContext(), fakeTrackSelectionFactory);
+    this.fakeTrackSelectionFactory = fakeTrackSelectionFactory;
   }
 
   @Override
-  protected TrackSelection[] selectTracks(RendererCapabilities[] rendererCapabilities,
-      TrackGroupArray[] rendererTrackGroupArrays, int[][][] rendererFormatSupports)
-      throws ExoPlaybackException {
-    List<FakeTrackSelection> resultList = new ArrayList<>();
-    for (TrackGroupArray trackGroupArray : rendererTrackGroupArrays) {
-      TrackGroup trackGroup = trackGroupArray.get(0);
-      FakeTrackSelection trackSelectionForRenderer = reuseOrCreateTrackSelection(trackGroup);
-      resultList.add(trackSelectionForRenderer);
+  protected ExoTrackSelection.@NullableType Definition[] selectAllTracks(
+      MappedTrackInfo mappedTrackInfo,
+      @Capabilities int[][][] rendererFormatSupports,
+      @AdaptiveSupport int[] rendererMixedMimeTypeAdaptationSupports,
+      Parameters params) {
+    int rendererCount = mappedTrackInfo.getRendererCount();
+    ExoTrackSelection.@NullableType Definition[] definitions =
+        new ExoTrackSelection.Definition[rendererCount];
+    for (int i = 0; i < rendererCount; i++) {
+      TrackGroupArray trackGroupArray = mappedTrackInfo.getTrackGroups(i);
+      boolean hasTracks = trackGroupArray.length > 0;
+      definitions[i] = hasTracks ? new ExoTrackSelection.Definition(trackGroupArray.get(0)) : null;
     }
-    return resultList.toArray(new TrackSelection[resultList.size()]);
+    return definitions;
   }
 
-  @NonNull
-  private FakeTrackSelection reuseOrCreateTrackSelection(TrackGroup trackGroup) {
-    FakeTrackSelection trackSelectionForRenderer = null;
-    if (mayReuseTrackSelection) {
-      for (FakeTrackSelection selectedTrackSelection : selectedTrackSelections) {
-        if (selectedTrackSelection.getTrackGroup().equals(trackGroup)) {
-          trackSelectionForRenderer = selectedTrackSelection;
+  /** Returns list of all {@link FakeTrackSelection}s that this track selector has made so far. */
+  public List<FakeTrackSelection> getAllTrackSelections() {
+    return fakeTrackSelectionFactory.trackSelections;
+  }
+
+  private static class FakeTrackSelectionFactory implements ExoTrackSelection.Factory {
+
+    private final List<FakeTrackSelection> trackSelections;
+    private final boolean mayReuseTrackSelection;
+
+    public FakeTrackSelectionFactory(boolean mayReuseTrackSelection) {
+      this.mayReuseTrackSelection = mayReuseTrackSelection;
+      trackSelections = new ArrayList<>();
+    }
+
+    @Override
+    public ExoTrackSelection[] createTrackSelections(
+        ExoTrackSelection.@NullableType Definition[] definitions,
+        BandwidthMeter bandwidthMeter,
+        MediaPeriodId mediaPeriodId,
+        Timeline timeline) {
+      ExoTrackSelection[] selections = new ExoTrackSelection[definitions.length];
+      for (int i = 0; i < definitions.length; i++) {
+        ExoTrackSelection.Definition definition = definitions[i];
+        if (definition != null) {
+          selections[i] = createTrackSelection(definition.group);
         }
       }
+      return selections;
     }
-    if (trackSelectionForRenderer == null) {
-      trackSelectionForRenderer = new FakeTrackSelection(trackGroup);
-      selectedTrackSelections.add(trackSelectionForRenderer);
+
+    private ExoTrackSelection createTrackSelection(TrackGroup trackGroup) {
+      if (mayReuseTrackSelection) {
+        for (FakeTrackSelection trackSelection : trackSelections) {
+          if (trackSelection.getTrackGroup().equals(trackGroup)) {
+            return trackSelection;
+          }
+        }
+      }
+      FakeTrackSelection trackSelection = new FakeTrackSelection(trackGroup);
+      trackSelections.add(trackSelection);
+      return trackSelection;
     }
-    return trackSelectionForRenderer;
   }
-
-  /**
-   * Returns list of all {@link FakeTrackSelection}s that this track selector has made so far.
-   */
-  public List<FakeTrackSelection> getSelectedTrackSelections() {
-    return selectedTrackSelections;
-  }
-
 }

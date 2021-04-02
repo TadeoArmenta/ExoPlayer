@@ -1,21 +1,25 @@
 # ExoPlayer GVR extension #
 
+**DEPRECATED - If you still need this extension, please contact us by filing an
+issue on our [issue tracker][].**
+
 The GVR extension wraps the [Google VR SDK for Android][]. It provides a
 GvrAudioProcessor, which uses [GvrAudioSurround][] to provide binaural rendering
 of surround sound and ambisonic soundfields.
 
 [Google VR SDK for Android]: https://developers.google.com/vr/android/
 [GvrAudioSurround]: https://developers.google.com/vr/android/reference/com/google/vr/sdk/audio/GvrAudioSurround
+[issue tracker]: https://github.com/google/ExoPlayer/issues
 
 ## Getting the extension ##
 
 The easiest way to use the extension is to add it as a gradle dependency:
 
 ```gradle
-compile 'com.google.android.exoplayer:extension-gvr:rX.X.X'
+implementation 'com.google.android.exoplayer:extension-gvr:2.X.X'
 ```
 
-where `rX.X.X` is the version, which must match the version of the ExoPlayer
+where `2.X.X` is the version, which must match the version of the ExoPlayer
 library being used.
 
 Alternatively, you can clone the ExoPlayer repository and depend on the module
@@ -37,4 +41,4 @@ locally. Instructions for doing this can be found in ExoPlayer's
 * [Javadoc][]: Classes matching `com.google.android.exoplayer2.ext.gvr.*`
   belong to this module.
 
-[Javadoc]: https://google.github.io/ExoPlayer/doc/reference/index.html
+[Javadoc]: https://exoplayer.dev/doc/reference/index.html

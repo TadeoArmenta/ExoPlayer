@@ -36,9 +36,10 @@ public interface RenderersFactory {
    * @param metadataRendererOutput An output for metadata renderers.
    * @return The {@link Renderer instances}.
    */
-  Renderer[] createRenderers(Handler eventHandler,
+  Renderer[] createRenderers(
+      Handler eventHandler,
       VideoRendererEventListener videoRendererEventListener,
-      AudioRendererEventListener audioRendererEventListener, TextOutput textRendererOutput,
+      AudioRendererEventListener audioRendererEventListener,
+      TextOutput textRendererOutput,
       MetadataOutput metadataRendererOutput);
-
 }

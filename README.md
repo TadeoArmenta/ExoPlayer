@@ -1,4 +1,4 @@
-# ExoPlayer #
+# ExoPlayer <img src="https://img.shields.io/github/v/release/google/ExoPlayer.svg?label=latest"/> #
 
 ExoPlayer is an application level media player for Android. It provides an
 alternative to Android’s MediaPlayer API for playing audio and video both
@@ -15,8 +15,8 @@ and extend, and can be updated through Play Store application updates.
 * Follow our [developer blog][] to keep up to date with the latest ExoPlayer
   developments!
 
-[developer guide]: https://google.github.io/ExoPlayer/guide.html
-[class reference]: https://google.github.io/ExoPlayer/doc/reference
+[developer guide]: https://exoplayer.dev/guide.html
+[class reference]: https://exoplayer.dev/doc/reference
 [release notes]: https://github.com/google/ExoPlayer/blob/release-v2/RELEASENOTES.md
 [developer blog]: https://medium.com/google-exoplayer
 
@@ -27,33 +27,39 @@ repository and depend on the modules locally.
 
 ### From JCenter ###
 
+#### 1. Add repositories ####
+
 The easiest way to get started using ExoPlayer is to add it as a gradle
-dependency. You need to make sure you have the JCenter and Google repositories
+dependency. You need to make sure you have the Google and JCenter repositories
 included in the `build.gradle` file in the root of your project:
 
 ```gradle
 repositories {
-    jcenter()
     google()
+    jcenter()
 }
 ```
 
-Next add a gradle compile dependency to the `build.gradle` file of your app
-module. The following will add a dependency to the full library:
+#### 2. Add ExoPlayer module dependencies ####
+
+Next add a dependency in the `build.gradle` file of your app module. The
+following will add a dependency to the full library:
 
 ```gradle
-compile 'com.google.android.exoplayer:exoplayer:2.X.X'
+implementation 'com.google.android.exoplayer:exoplayer:2.X.X'
 ```
 
-where `2.X.X` is your preferred version. Alternatively, you can depend on only
-the library modules that you actually need. For example the following will add
-dependencies on the Core, DASH and UI library modules, as might be required for
-an app that plays DASH content:
+where `2.X.X` is your preferred version.
+
+As an alternative to the full library, you can depend on only the library
+modules that you actually need. For example the following will add dependencies
+on the Core, DASH and UI library modules, as might be required for an app that
+plays DASH content:
 
 ```gradle
-compile 'com.google.android.exoplayer:exoplayer-core:2.X.X'
-compile 'com.google.android.exoplayer:exoplayer-dash:2.X.X'
-compile 'com.google.android.exoplayer:exoplayer-ui:2.X.X'
+implementation 'com.google.android.exoplayer:exoplayer-core:2.X.X'
+implementation 'com.google.android.exoplayer:exoplayer-dash:2.X.X'
+implementation 'com.google.android.exoplayer:exoplayer-ui:2.X.X'
 ```
 
 The available library modules are listed below. Adding a dependency to the full
@@ -77,6 +83,18 @@ JCenter can be found on [Bintray][].
 [extensions directory]: https://github.com/google/ExoPlayer/tree/release-v2/extensions/
 [Bintray]: https://bintray.com/google/exoplayer
 
+#### 3. Turn on Java 8 support ####
+
+If not enabled already, you also need to turn on Java 8 support in all
+`build.gradle` files depending on ExoPlayer, by adding the following to the
+`android` section:
+
+```gradle
+compileOptions {
+  targetCompatibility JavaVersion.VERSION_1_8
+}
+```
+
 ### Locally ###
 
 Cloning the repository and depending on the modules locally is required when
@@ -89,6 +107,7 @@ branch:
 
 ```sh
 git clone https://github.com/google/ExoPlayer.git
+cd ExoPlayer
 git checkout release-v2
 ```
 
@@ -105,9 +124,9 @@ You should now see the ExoPlayer modules appear as part of your project. You can
 depend on them as you would on any other local module, for example:
 
 ```gradle
-compile project(':exoplayer-library-core')
-compile project(':exoplayer-library-dash')
-compile project(':exoplayer-library-ui')
+implementation project(':exoplayer-library-core')
+implementation project(':exoplayer-library-dash')
+implementation project(':exoplayer-library-ui')
 ```
 
 ## Developing ExoPlayer ##

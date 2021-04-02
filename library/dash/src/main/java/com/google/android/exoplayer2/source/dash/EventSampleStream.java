@@ -15,6 +15,8 @@
  */
 package com.google.android.exoplayer2.source.dash;
 
+import static java.lang.Math.max;
+
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.FormatHolder;
@@ -36,35 +38,53 @@ import java.io.IOException;
   private final EventMessageEncoder eventMessageEncoder;
 
   private long[] eventTimesUs;
-  private boolean eventStreamUpdatable;
+  private boolean eventStreamAppendable;
   private EventStream eventStream;
 
   private boolean isFormatSentDownstream;
   private int currentIndex;
   private long pendingSeekPositionUs;
 
-  EventSampleStream(EventStream eventStream, Format upstreamFormat, boolean eventStreamUpdatable) {
+  public EventSampleStream(
+      EventStream eventStream, Format upstreamFormat, boolean eventStreamAppendable) {
     this.upstreamFormat = upstreamFormat;
+    this.eventStream = eventStream;
     eventMessageEncoder = new EventMessageEncoder();
     pendingSeekPositionUs = C.TIME_UNSET;
-    updateEventStream(eventStream, eventStreamUpdatable);
+    eventTimesUs = eventStream.presentationTimesUs;
+    updateEventStream(eventStream, eventStreamAppendable);
   }
 
-  void updateEventStream(EventStream eventStream, boolean eventStreamUpdatable) {
+  public String eventStreamId() {
+    return eventStream.id();
+  }
+
+  public void updateEventStream(EventStream eventStream, boolean eventStreamAppendable) {
     long lastReadPositionUs = currentIndex == 0 ? C.TIME_UNSET : eventTimesUs[currentIndex - 1];
 
-    this.eventStreamUpdatable = eventStreamUpdatable;
+    this.eventStreamAppendable = eventStreamAppendable;
     this.eventStream = eventStream;
     this.eventTimesUs = eventStream.presentationTimesUs;
     if (pendingSeekPositionUs != C.TIME_UNSET) {
       seekToUs(pendingSeekPositionUs);
     } else if (lastReadPositionUs != C.TIME_UNSET) {
-      currentIndex = Util.binarySearchCeil(eventTimesUs, lastReadPositionUs, false, false);
+      currentIndex =
+          Util.binarySearchCeil(
+              eventTimesUs, lastReadPositionUs, /* inclusive= */ false, /* stayInBounds= */ false);
     }
   }
 
-  String eventStreamId() {
-    return eventStream.id();
+  /**
+   * Seeks to the specified position in microseconds.
+   *
+   * @param positionUs The seek position in microseconds.
+   */
+  public void seekToUs(long positionUs) {
+    currentIndex =
+        Util.binarySearchCeil(
+            eventTimesUs, positionUs, /* inclusive= */ true, /* stayInBounds= */ false);
+    boolean isPendingSeek = eventStreamAppendable && currentIndex == eventTimesUs.length;
+    pendingSeekPositionUs = isPendingSeek ? positionUs : C.TIME_UNSET;
   }
 
   @Override
@@ -86,7 +106,7 @@ import java.io.IOException;
       return C.RESULT_FORMAT_READ;
     }
     if (currentIndex == eventTimesUs.length) {
-      if (!eventStreamUpdatable) {
+      if (!eventStreamAppendable) {
         buffer.setFlags(C.BUFFER_FLAG_END_OF_STREAM);
         return C.RESULT_BUFFER_READ;
       } else {
@@ -94,37 +114,20 @@ import java.io.IOException;
       }
     }
     int sampleIndex = currentIndex++;
-    byte[] serializedEvent = eventMessageEncoder.encode(eventStream.events[sampleIndex],
-        eventStream.timescale);
-    if (serializedEvent != null) {
-      buffer.ensureSpaceForWrite(serializedEvent.length);
-      buffer.setFlags(C.BUFFER_FLAG_KEY_FRAME);
-      buffer.data.put(serializedEvent);
-      buffer.timeUs = eventTimesUs[sampleIndex];
-      return C.RESULT_BUFFER_READ;
-    } else {
-      return C.RESULT_NOTHING_READ;
-    }
+    byte[] serializedEvent = eventMessageEncoder.encode(eventStream.events[sampleIndex]);
+    buffer.ensureSpaceForWrite(serializedEvent.length);
+    buffer.data.put(serializedEvent);
+    buffer.timeUs = eventTimesUs[sampleIndex];
+    buffer.setFlags(C.BUFFER_FLAG_KEY_FRAME);
+    return C.RESULT_BUFFER_READ;
   }
 
   @Override
   public int skipData(long positionUs) {
-    int newIndex =
-        Math.max(currentIndex, Util.binarySearchCeil(eventTimesUs, positionUs, true, false));
+    int newIndex = max(currentIndex, Util.binarySearchCeil(eventTimesUs, positionUs, true, false));
     int skipped = newIndex - currentIndex;
     currentIndex = newIndex;
     return skipped;
-  }
-
-  /**
-   * Seeks to the specified position in microseconds.
-   *
-   * @param positionUs The seek position in microseconds.
-   */
-  public void seekToUs(long positionUs) {
-    currentIndex = Util.binarySearchCeil(eventTimesUs, positionUs, true, false);
-    boolean isPendingSeek = eventStreamUpdatable && currentIndex == eventTimesUs.length;
-    pendingSeekPositionUs = isPendingSeek ? positionUs : C.TIME_UNSET;
   }
 
 }

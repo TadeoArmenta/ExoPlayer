@@ -15,6 +15,7 @@
  */
 package com.google.android.exoplayer2.ext.cast;
 
+import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.gms.cast.CastStatusCodes;
@@ -26,17 +27,25 @@ import com.google.android.gms.cast.MediaTrack;
  */
 /* package */ final class CastUtils {
 
+  /** The duration returned by {@link MediaInfo#getStreamDuration()} for live streams. */
+  // TODO: Remove once [Internal ref: b/171657375] is fixed.
+  private static final long LIVE_STREAM_DURATION = -1000;
+
   /**
    * Returns the duration in microseconds advertised by a media info, or {@link C#TIME_UNSET} if
    * unknown or not applicable.
    *
    * @param mediaInfo The media info to get the duration from.
-   * @return The duration in microseconds.
+   * @return The duration in microseconds, or {@link C#TIME_UNSET} if unknown or not applicable.
    */
-  public static long getStreamDurationUs(MediaInfo mediaInfo) {
-    long durationMs =
-        mediaInfo != null ? mediaInfo.getStreamDuration() : MediaInfo.UNKNOWN_DURATION;
-    return durationMs != MediaInfo.UNKNOWN_DURATION ? C.msToUs(durationMs) : C.TIME_UNSET;
+  public static long getStreamDurationUs(@Nullable MediaInfo mediaInfo) {
+    if (mediaInfo == null) {
+      return C.TIME_UNSET;
+    }
+    long durationMs = mediaInfo.getStreamDuration();
+    return durationMs != MediaInfo.UNKNOWN_DURATION && durationMs != LIVE_STREAM_DURATION
+        ? C.msToUs(durationMs)
+        : C.TIME_UNSET;
   }
 
   /**
@@ -89,7 +98,7 @@ import com.google.android.gms.cast.MediaTrack;
       case CastStatusCodes.UNKNOWN_ERROR:
         return "An unknown, unexpected error has occurred.";
       default:
-        return "Unknown: " + statusCode;
+        return CastStatusCodes.getStatusCodeString(statusCode);
     }
   }
 
@@ -101,8 +110,11 @@ import com.google.android.gms.cast.MediaTrack;
    * @return The equivalent {@link Format}.
    */
   public static Format mediaTrackToFormat(MediaTrack mediaTrack) {
-    return Format.createContainerFormat(mediaTrack.getContentId(), mediaTrack.getContentType(),
-        null, null, Format.NO_VALUE, 0, mediaTrack.getLanguage());
+    return new Format.Builder()
+        .setId(mediaTrack.getContentId())
+        .setContainerMimeType(mediaTrack.getContentType())
+        .setLanguage(mediaTrack.getLanguage())
+        .build();
   }
 
   private CastUtils() {}

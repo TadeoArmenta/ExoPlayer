@@ -16,18 +16,28 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion project.ext.compileSdkVersion
-    buildToolsVersion project.ext.buildToolsVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 
     defaultConfig {
-        minSdkVersion 16
-        targetSdkVersion project.ext.targetSdkVersion
+        versionName project.ext.releaseVersion
+        versionCode project.ext.releaseVersionCode
+        minSdkVersion project.ext.minSdkVersion
+        targetSdkVersion project.ext.appTargetSdkVersion
+        multiDexEnabled true
     }
 
     buildTypes {
         release {
             shrinkResources true
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt')
+            proguardFiles = [
+                "proguard-rules.txt",
+                getDefaultProguardFile('proguard-android.txt')
+            ]
         }
         debug {
             jniDebuggable = true
@@ -35,18 +45,22 @@ android {
     }
 
     lintOptions {
-        // The demo app does not have translations.
-        disable 'MissingTranslation'
+        // The demo app isn't indexed and doesn't have translations.
+        disable 'GoogleAppIndexingWarning','MissingTranslation'
     }
-
 }
 
 dependencies {
-    compile project(modulePrefix + 'library-core')
-    compile project(modulePrefix + 'library-dash')
-    compile project(modulePrefix + 'library-hls')
-    compile project(modulePrefix + 'library-smoothstreaming')
-    compile project(modulePrefix + 'library-ui')
-    compile project(modulePrefix + 'extension-cast')
-    compile 'com.android.support:recyclerview-v7:' + supportLibraryVersion
+    implementation project(modulePrefix + 'library-core')
+    implementation project(modulePrefix + 'library-dash')
+    implementation project(modulePrefix + 'library-hls')
+    implementation project(modulePrefix + 'library-smoothstreaming')
+    implementation project(modulePrefix + 'library-ui')
+    implementation project(modulePrefix + 'extension-cast')
+    implementation 'androidx.appcompat:appcompat:' + androidxAppCompatVersion
+    implementation 'androidx.multidex:multidex:' + androidxMultidexVersion
+    implementation 'androidx.recyclerview:recyclerview:1.1.0'
+    implementation 'com.google.android.material:material:1.2.1'
 }
+
+apply plugin: 'com.google.android.gms.strict-version-matcher-plugin'

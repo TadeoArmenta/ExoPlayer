@@ -16,35 +16,40 @@
 package com.google.android.exoplayer2.testutil;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.fail;
+import static com.google.common.truth.Truth.assertWithMessage;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import android.os.ConditionVariable;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.os.Message;
-import com.google.android.exoplayer2.ExoPlaybackException;
-import com.google.android.exoplayer2.PlayerMessage;
+import android.util.Pair;
+import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.source.LoadEventInfo;
+import com.google.android.exoplayer2.source.MediaLoadData;
 import com.google.android.exoplayer2.source.MediaPeriod;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.MediaSource.MediaPeriodId;
+import com.google.android.exoplayer2.source.MediaSource.MediaSourceCaller;
+import com.google.android.exoplayer2.source.MediaSourceEventListener;
 import com.google.android.exoplayer2.upstream.Allocator;
 import com.google.android.exoplayer2.util.Assertions;
 import com.google.android.exoplayer2.util.Util;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.TimeUnit;
 
-/**
- * A runner for {@link MediaSource} tests.
- */
+/** A runner for {@link MediaSource} tests. */
 public class MediaSourceTestRunner {
 
-  public static final int TIMEOUT_MS = 10000;
+  public static final int TIMEOUT_MS = 10_000;
 
-  private final StubExoPlayer player;
   private final MediaSource mediaSource;
   private final MediaSourceListener mediaSourceListener;
   private final HandlerThread playbackThread;
@@ -52,6 +57,8 @@ public class MediaSourceTestRunner {
   private final Allocator allocator;
 
   private final LinkedBlockingDeque<Timeline> timelines;
+  private final CopyOnWriteArrayList<Pair<Integer, MediaPeriodId>> completedLoads;
+
   private Timeline timeline;
 
   /**
@@ -61,13 +68,14 @@ public class MediaSourceTestRunner {
   public MediaSourceTestRunner(MediaSource mediaSource, Allocator allocator) {
     this.mediaSource = mediaSource;
     this.allocator = allocator;
-    playbackThread = new HandlerThread("PlaybackThread");
+    playbackThread = new HandlerThread("TestHandler");
     playbackThread.start();
     Looper playbackLooper = playbackThread.getLooper();
     playbackHandler = new Handler(playbackLooper);
-    player = new EventHandlingExoPlayer(playbackLooper);
     mediaSourceListener = new MediaSourceListener();
     timelines = new LinkedBlockingDeque<>();
+    completedLoads = new CopyOnWriteArrayList<>();
+    mediaSource.addEventListener(playbackHandler, mediaSourceListener);
   }
 
   /**
@@ -76,21 +84,23 @@ public class MediaSourceTestRunner {
    * @param runnable The {@link Runnable} to run.
    */
   public void runOnPlaybackThread(final Runnable runnable) {
-    final Throwable[] throwable = new Throwable[1];
-    final ConditionVariable finishedCondition = new ConditionVariable();
-    playbackHandler.post(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          runnable.run();
-        } catch (Throwable e) {
-          throwable[0] = e;
-        } finally {
-          finishedCondition.open();
-        }
-      }
-    });
-    assertThat(finishedCondition.block(TIMEOUT_MS)).isTrue();
+    Throwable[] throwable = new Throwable[1];
+    CountDownLatch finishedLatch = new CountDownLatch(1);
+    playbackHandler.post(
+        () -> {
+          try {
+            runnable.run();
+          } catch (Throwable e) {
+            throwable[0] = e;
+          } finally {
+            finishedLatch.countDown();
+          }
+        });
+    try {
+      assertThat(finishedLatch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
+    } catch (InterruptedException e) {
+      Util.sneakyThrow(e);
+    }
     if (throwable[0] != null) {
       Util.sneakyThrow(throwable[0]);
     }
@@ -103,20 +113,18 @@ public class MediaSourceTestRunner {
    */
   public Timeline prepareSource() throws IOException {
     final IOException[] prepareError = new IOException[1];
-    runOnPlaybackThread(new Runnable() {
-      @Override
-      public void run() {
-        mediaSource.prepareSource(player, true, mediaSourceListener);
-        try {
-          // TODO: This only catches errors that are set synchronously in prepareSource. To capture
-          // async errors we'll need to poll maybeThrowSourceInfoRefreshError until the first call
-          // to onSourceInfoRefreshed.
-          mediaSource.maybeThrowSourceInfoRefreshError();
-        } catch (IOException e) {
-          prepareError[0] = e;
-        }
-      }
-    });
+    runOnPlaybackThread(
+        () -> {
+          mediaSource.prepareSource(mediaSourceListener, /* mediaTransferListener= */ null);
+          try {
+            // TODO: This only catches errors that are set synchronously in prepareSource. To
+            // capture async errors we'll need to poll maybeThrowSourceInfoRefreshError until the
+            // first call to onSourceInfoRefreshed.
+            mediaSource.maybeThrowSourceInfoRefreshError();
+          } catch (IOException e) {
+            prepareError[0] = e;
+          }
+        });
     if (prepareError[0] != null) {
       throw prepareError[0];
     }
@@ -124,20 +132,28 @@ public class MediaSourceTestRunner {
   }
 
   /**
-   * Calls {@link MediaSource#createPeriod(MediaSource.MediaPeriodId, Allocator)} on the playback
-   * thread, asserting that a non-null {@link MediaPeriod} is returned.
+   * Calls {@link MediaSource#createPeriod(MediaSource.MediaPeriodId, Allocator, long)} with a zero
+   * start position on the playback thread, asserting that a non-null {@link MediaPeriod} is
+   * returned.
    *
    * @param periodId The id of the period to create.
    * @return The created {@link MediaPeriod}.
    */
   public MediaPeriod createPeriod(final MediaPeriodId periodId) {
+    return createPeriod(periodId, /* startPositionUs= */ 0);
+  }
+
+  /**
+   * Calls {@link MediaSource#createPeriod(MediaSource.MediaPeriodId, Allocator, long)} on the
+   * playback thread, asserting that a non-null {@link MediaPeriod} is returned.
+   *
+   * @param periodId The id of the period to create.
+   * @return The created {@link MediaPeriod}.
+   */
+  public MediaPeriod createPeriod(final MediaPeriodId periodId, long startPositionUs) {
     final MediaPeriod[] holder = new MediaPeriod[1];
-    runOnPlaybackThread(new Runnable() {
-      @Override
-      public void run() {
-        holder[0] = mediaSource.createPeriod(periodId, allocator);
-      }
-    });
+    runOnPlaybackThread(
+        () -> holder[0] = mediaSource.createPeriod(periodId, allocator, startPositionUs));
     assertThat(holder[0]).isNotNull();
     return holder[0];
   }
@@ -152,29 +168,26 @@ public class MediaSourceTestRunner {
    */
   public CountDownLatch preparePeriod(final MediaPeriod mediaPeriod, final long positionUs) {
     final ConditionVariable prepareCalled = new ConditionVariable();
-    final CountDownLatch preparedCountDown = new CountDownLatch(1);
+    final CountDownLatch preparedLatch = new CountDownLatch(1);
     runOnPlaybackThread(
-        new Runnable() {
-          @Override
-          public void run() {
-            mediaPeriod.prepare(
-                new MediaPeriod.Callback() {
-                  @Override
-                  public void onPrepared(MediaPeriod mediaPeriod) {
-                    preparedCountDown.countDown();
-                  }
+        () -> {
+          mediaPeriod.prepare(
+              new MediaPeriod.Callback() {
+                @Override
+                public void onPrepared(MediaPeriod mediaPeriod1) {
+                  preparedLatch.countDown();
+                }
 
-                  @Override
-                  public void onContinueLoadingRequested(MediaPeriod source) {
-                    // Do nothing.
-                  }
-                },
-                positionUs);
-            prepareCalled.open();
-          }
+                @Override
+                public void onContinueLoadingRequested(MediaPeriod source) {
+                  // Do nothing.
+                }
+              },
+              positionUs);
+          prepareCalled.open();
         });
     prepareCalled.block();
-    return preparedCountDown;
+    return preparedLatch;
   }
 
   /**
@@ -183,24 +196,12 @@ public class MediaSourceTestRunner {
    * @param mediaPeriod The {@link MediaPeriod} to release.
    */
   public void releasePeriod(final MediaPeriod mediaPeriod) {
-    runOnPlaybackThread(new Runnable() {
-      @Override
-      public void run() {
-        mediaSource.releasePeriod(mediaPeriod);
-      }
-    });
+    runOnPlaybackThread(() -> mediaSource.releasePeriod(mediaPeriod));
   }
 
-  /**
-   * Calls {@link MediaSource#releaseSource()} on the playback thread.
-   */
+  /** Calls {@link MediaSource#releaseSource(MediaSourceCaller)} on the playback thread. */
   public void releaseSource() {
-    runOnPlaybackThread(new Runnable() {
-      @Override
-      public void run() {
-        mediaSource.releaseSource();
-      }
-    });
+    runOnPlaybackThread(() -> mediaSource.releaseSource(mediaSourceListener));
   }
 
   /**
@@ -209,7 +210,7 @@ public class MediaSourceTestRunner {
    * runner was created if neither method has been called).
    */
   public void assertNoTimelineChange() {
-    assertThat(timelines.isEmpty()).isTrue();
+    assertThat(timelines).isEmpty();
   }
 
   /**
@@ -231,7 +232,7 @@ public class MediaSourceTestRunner {
    */
   public Timeline assertTimelineChangeBlocking() {
     try {
-      timeline = timelines.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      timeline = timelines.poll(TIMEOUT_MS, MILLISECONDS);
       assertThat(timeline).isNotNull(); // Null indicates the poll timed out.
       assertNoTimelineChange();
       return timeline;
@@ -250,12 +251,12 @@ public class MediaSourceTestRunner {
   public void assertPrepareAndReleaseAllPeriods() throws InterruptedException {
     Timeline.Period period = new Timeline.Period();
     for (int i = 0; i < timeline.getPeriodCount(); i++) {
-      timeline.getPeriod(i, period);
-      assertPrepareAndReleasePeriod(new MediaPeriodId(i, period.windowIndex));
+      timeline.getPeriod(i, period, /* setIds= */ true);
+      assertPrepareAndReleasePeriod(new MediaPeriodId(period.uid, period.windowIndex));
       for (int adGroupIndex = 0; adGroupIndex < period.getAdGroupCount(); adGroupIndex++) {
         for (int adIndex = 0; adIndex < period.getAdCountInAdGroup(adGroupIndex); adIndex++) {
           assertPrepareAndReleasePeriod(
-              new MediaPeriodId(i, adGroupIndex, adIndex, period.windowIndex));
+              new MediaPeriodId(period.uid, adGroupIndex, adIndex, period.windowIndex));
         }
       }
     }
@@ -264,67 +265,134 @@ public class MediaSourceTestRunner {
   private void assertPrepareAndReleasePeriod(MediaPeriodId mediaPeriodId)
       throws InterruptedException {
     MediaPeriod mediaPeriod = createPeriod(mediaPeriodId);
-    CountDownLatch preparedCondition = preparePeriod(mediaPeriod, 0);
-    assertThat(preparedCondition.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)).isTrue();
-    // MediaSource is supposed to support multiple calls to createPeriod with the same id without an
-    // intervening call to releasePeriod.
-    MediaPeriod secondMediaPeriod = createPeriod(mediaPeriodId);
-    CountDownLatch secondPreparedCondition = preparePeriod(secondMediaPeriod, 0);
-    assertThat(secondPreparedCondition.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)).isTrue();
+    CountDownLatch preparedLatch = preparePeriod(mediaPeriod, 0);
+    assertThat(preparedLatch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
+    // MediaSource is supposed to support multiple calls to createPeriod without an intervening call
+    // to releasePeriod.
+    MediaPeriodId secondMediaPeriodId =
+        new MediaPeriodId(
+            mediaPeriodId.periodUid,
+            mediaPeriodId.adGroupIndex,
+            mediaPeriodId.adIndexInAdGroup,
+            mediaPeriodId.windowSequenceNumber + 1000);
+    MediaPeriod secondMediaPeriod = createPeriod(secondMediaPeriodId);
+    CountDownLatch secondPreparedLatch = preparePeriod(secondMediaPeriod, 0);
+    assertThat(secondPreparedLatch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     // Release the periods.
     releasePeriod(mediaPeriod);
     releasePeriod(secondMediaPeriod);
   }
 
   /**
-   * Releases the runner. Should be called when the runner is no longer required.
+   * Asserts that the media source reported completed loads via {@link
+   * MediaSourceEventListener#onLoadCompleted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)} for
+   * each specified window index and a null period id. Also asserts that no other loads with media
+   * period id null are reported.
    */
+  public void assertCompletedManifestLoads(Integer... windowIndices) {
+    List<Integer> expectedWindowIndices = new ArrayList<>(Arrays.asList(windowIndices));
+    for (Pair<Integer, MediaPeriodId> windowIndexAndMediaPeriodId : completedLoads) {
+      if (windowIndexAndMediaPeriodId.second == null) {
+        assertWithMessage("Missing expected load")
+            .that(expectedWindowIndices)
+            .contains(windowIndexAndMediaPeriodId.first);
+        expectedWindowIndices.remove(windowIndexAndMediaPeriodId.first);
+      }
+    }
+    assertWithMessage("Not all expected media source loads have been completed.")
+        .that(expectedWindowIndices)
+        .isEmpty();
+  }
+
+  /**
+   * Asserts that the media source reported completed loads via {@link
+   * MediaSourceEventListener#onLoadCompleted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)} for
+   * each specified media period id, and asserts that the associated window index matches the one in
+   * the last known timeline returned from {@link #prepareSource()}, {@link #assertTimelineChange()}
+   * or {@link #assertTimelineChangeBlocking()}.
+   */
+  public void assertCompletedMediaPeriodLoads(MediaPeriodId... mediaPeriodIds) {
+    Timeline.Period period = new Timeline.Period();
+    HashSet<MediaPeriodId> expectedLoads = new HashSet<>(Arrays.asList(mediaPeriodIds));
+    for (Pair<Integer, MediaPeriodId> windowIndexAndMediaPeriodId : completedLoads) {
+      int windowIndex = windowIndexAndMediaPeriodId.first;
+      MediaPeriodId mediaPeriodId = windowIndexAndMediaPeriodId.second;
+      if (expectedLoads.remove(mediaPeriodId)) {
+        int periodIndex = timeline.getIndexOfPeriod(mediaPeriodId.periodUid);
+        assertThat(windowIndex).isEqualTo(timeline.getPeriod(periodIndex, period).windowIndex);
+      }
+    }
+    assertWithMessage("Not all expected media source loads have been completed.")
+        .that(expectedLoads)
+        .isEmpty();
+  }
+
+  /** Releases the runner. Should be called when the runner is no longer required. */
   public void release() {
     playbackThread.quit();
   }
 
-  private class MediaSourceListener implements MediaSource.Listener {
+  private class MediaSourceListener implements MediaSourceCaller, MediaSourceEventListener {
+
+    // MediaSourceCaller methods.
 
     @Override
-    public void onSourceInfoRefreshed(MediaSource source, Timeline timeline, Object manifest) {
+    public void onSourceInfoRefreshed(MediaSource source, Timeline timeline) {
       Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
       timelines.addLast(timeline);
     }
 
+    // MediaSourceEventListener methods.
+
+    @Override
+    public void onLoadStarted(
+        int windowIndex,
+        @Nullable MediaPeriodId mediaPeriodId,
+        LoadEventInfo loadEventInfo,
+        MediaLoadData mediaLoadData) {
+      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+    }
+
+    @Override
+    public void onLoadCompleted(
+        int windowIndex,
+        @Nullable MediaPeriodId mediaPeriodId,
+        LoadEventInfo loadEventInfo,
+        MediaLoadData mediaLoadData) {
+      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      completedLoads.add(Pair.create(windowIndex, mediaPeriodId));
+    }
+
+    @Override
+    public void onLoadCanceled(
+        int windowIndex,
+        @Nullable MediaPeriodId mediaPeriodId,
+        LoadEventInfo loadEventInfo,
+        MediaLoadData mediaLoadData) {
+      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+    }
+
+    @Override
+    public void onLoadError(
+        int windowIndex,
+        @Nullable MediaPeriodId mediaPeriodId,
+        LoadEventInfo loadEventInfo,
+        MediaLoadData mediaLoadData,
+        IOException error,
+        boolean wasCanceled) {
+      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+    }
+
+    @Override
+    public void onUpstreamDiscarded(
+        int windowIndex, @Nullable MediaPeriodId mediaPeriodId, MediaLoadData mediaLoadData) {
+      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+    }
+
+    @Override
+    public void onDownstreamFormatChanged(
+        int windowIndex, @Nullable MediaPeriodId mediaPeriodId, MediaLoadData mediaLoadData) {
+      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+    }
   }
-
-  private static class EventHandlingExoPlayer extends StubExoPlayer
-      implements Handler.Callback, PlayerMessage.Sender {
-
-    private final Handler handler;
-
-    public EventHandlingExoPlayer(Looper looper) {
-      this.handler = new Handler(looper, this);
-    }
-
-    @Override
-    public PlayerMessage createMessage(PlayerMessage.Target target) {
-      return new PlayerMessage(
-          /* sender= */ this, target, Timeline.EMPTY, /* defaultWindowIndex= */ 0, handler);
-    }
-
-    @Override
-    public void sendMessage(PlayerMessage message) {
-      handler.obtainMessage(0, message).sendToTarget();
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public boolean handleMessage(Message msg) {
-      PlayerMessage message = (PlayerMessage) msg.obj;
-      try {
-        message.getTarget().handleMessage(message.getType(), message.getPayload());
-        message.markAsProcessed(/* isDelivered= */ true);
-      } catch (ExoPlaybackException e) {
-        fail("Unexpected ExoPlaybackException.");
-      }
-      return true;
-    }
-  }
-
 }

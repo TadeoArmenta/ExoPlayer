@@ -15,89 +15,143 @@
  */
 package com.google.android.exoplayer2.source.smoothstreaming.offline;
 
+import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
+
 import android.net.Uri;
-import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.offline.DownloaderConstructorHelper;
+import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.offline.SegmentDownloader;
+import com.google.android.exoplayer2.offline.StreamKey;
 import com.google.android.exoplayer2.source.smoothstreaming.manifest.SsManifest;
 import com.google.android.exoplayer2.source.smoothstreaming.manifest.SsManifest.StreamElement;
 import com.google.android.exoplayer2.source.smoothstreaming.manifest.SsManifestParser;
-import com.google.android.exoplayer2.source.smoothstreaming.manifest.SsUtil;
-import com.google.android.exoplayer2.source.smoothstreaming.manifest.TrackKey;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DataSpec;
-import com.google.android.exoplayer2.upstream.ParsingLoadable;
-import java.io.IOException;
+import com.google.android.exoplayer2.upstream.ParsingLoadable.Parser;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
+import com.google.android.exoplayer2.util.Util;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
- * Helper class to download SmoothStreaming streams.
- *
- * <p>Except {@link #getTotalSegments()}, {@link #getDownloadedSegments()} and {@link
- * #getDownloadedBytes()}, this class isn't thread safe.
+ * A downloader for SmoothStreaming streams.
  *
  * <p>Example usage:
  *
  * <pre>{@code
- * SimpleCache cache = new SimpleCache(downloadFolder, new NoOpCacheEvictor());
- * DefaultHttpDataSourceFactory factory = new DefaultHttpDataSourceFactory("ExoPlayer", null);
- * DownloaderConstructorHelper constructorHelper =
- *     new DownloaderConstructorHelper(cache, factory);
- * SsDownloader ssDownloader = new SsDownloader(manifestUrl, constructorHelper);
- * // Select the first track of the first stream element
- * ssDownloader.selectRepresentations(new TrackKey[] {new TrackKey(0, 0)});
- * ssDownloader.download(new ProgressListener() {
- *   {@literal @}Override
- *   public void onDownloadProgress(Downloader downloader, float downloadPercentage,
- *       long downloadedBytes) {
- *     // Invoked periodically during the download.
- *   }
- * });
- * // Access downloaded data using CacheDataSource
- * CacheDataSource cacheDataSource =
- *     new CacheDataSource(cache, factory.createDataSource(), CacheDataSource.FLAG_BLOCK_ON_CACHE);
+ * SimpleCache cache = new SimpleCache(downloadFolder, new NoOpCacheEvictor(), databaseProvider);
+ * CacheDataSource.Factory cacheDataSourceFactory =
+ *     new CacheDataSource.Factory()
+ *         .setCache(cache)
+ *         .setUpstreamDataSourceFactory(new DefaultHttpDataSourceFactory(userAgent));
+ * // Create a downloader for the first track of the first stream element.
+ * SsDownloader ssDownloader =
+ *     new SsDownloader(
+ *         new MediaItem.Builder()
+ *             .setUri(manifestUri)
+ *             .setStreamKeys(Collections.singletonList(new StreamKey(0, 0)))
+ *             .build(),
+ *         cacheDataSourceFactory);
+ * // Perform the download.
+ * ssDownloader.download(progressListener);
+ * // Use the downloaded data for playback.
+ * SsMediaSource mediaSource =
+ *     new SsMediaSource.Factory(cacheDataSourceFactory).createMediaSource(mediaItem);
  * }</pre>
  */
-public final class SsDownloader extends SegmentDownloader<SsManifest, TrackKey> {
+public final class SsDownloader extends SegmentDownloader<SsManifest> {
 
   /**
-   * @see SegmentDownloader#SegmentDownloader(Uri, DownloaderConstructorHelper)
+   * @deprecated Use {@link #SsDownloader(MediaItem, CacheDataSource.Factory, Executor)} instead.
    */
-  public SsDownloader(Uri manifestUri, DownloaderConstructorHelper constructorHelper)  {
-    super(SsUtil.fixManifestUri(manifestUri), constructorHelper);
+  @SuppressWarnings("deprecation")
+  @Deprecated
+  public SsDownloader(
+      Uri manifestUri, List<StreamKey> streamKeys, CacheDataSource.Factory cacheDataSourceFactory) {
+    this(manifestUri, streamKeys, cacheDataSourceFactory, Runnable::run);
+  }
+
+  /**
+   * Creates an instance.
+   *
+   * @param mediaItem The {@link MediaItem} to be downloaded.
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
+   *     download will be written.
+   */
+  public SsDownloader(MediaItem mediaItem, CacheDataSource.Factory cacheDataSourceFactory) {
+    this(mediaItem, cacheDataSourceFactory, Runnable::run);
+  }
+
+  /**
+   * @deprecated Use {@link #SsDownloader(MediaItem, CacheDataSource.Factory, Executor)} instead.
+   */
+  @Deprecated
+  public SsDownloader(
+      Uri manifestUri,
+      List<StreamKey> streamKeys,
+      CacheDataSource.Factory cacheDataSourceFactory,
+      Executor executor) {
+    this(
+        new MediaItem.Builder().setUri(manifestUri).setStreamKeys(streamKeys).build(),
+        cacheDataSourceFactory,
+        executor);
+  }
+
+  /**
+   * Creates an instance.
+   *
+   * @param mediaItem The {@link MediaItem} to be downloaded.
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
+   *     download will be written.
+   * @param executor An {@link Executor} used to make requests for the media being downloaded.
+   *     Providing an {@link Executor} that uses multiple threads will speed up the download by
+   *     allowing parts of it to be executed in parallel.
+   */
+  public SsDownloader(
+      MediaItem mediaItem, CacheDataSource.Factory cacheDataSourceFactory, Executor executor) {
+    this(
+        mediaItem
+            .buildUpon()
+            .setUri(
+                Util.fixSmoothStreamingIsmManifestUri(
+                    checkNotNull(mediaItem.playbackProperties).uri))
+            .build(),
+        new SsManifestParser(),
+        cacheDataSourceFactory,
+        executor);
+  }
+
+  /**
+   * Creates a new instance.
+   *
+   * @param mediaItem The {@link MediaItem} to be downloaded.
+   * @param manifestParser A parser for SmoothStreaming manifests.
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
+   *     download will be written.
+   * @param executor An {@link Executor} used to make requests for the media being downloaded.
+   *     Providing an {@link Executor} that uses multiple threads will speed up the download by
+   *     allowing parts of it to be executed in parallel.
+   */
+  public SsDownloader(
+      MediaItem mediaItem,
+      Parser<SsManifest> manifestParser,
+      CacheDataSource.Factory cacheDataSourceFactory,
+      Executor executor) {
+    super(mediaItem, manifestParser, cacheDataSourceFactory, executor);
   }
 
   @Override
-  public TrackKey[] getAllRepresentationKeys() throws IOException {
-    ArrayList<TrackKey> keys = new ArrayList<>();
-    SsManifest manifest = getManifest();
-    for (int i = 0; i < manifest.streamElements.length; i++) {
-      StreamElement streamElement = manifest.streamElements[i];
-      for (int j = 0; j < streamElement.formats.length; j++) {
-        keys.add(new TrackKey(i, j));
-      }
-    }
-    return keys.toArray(new TrackKey[keys.size()]);
-  }
-
-  @Override
-  protected SsManifest getManifest(DataSource dataSource, Uri uri) throws IOException {
-    ParsingLoadable<SsManifest> loadable =
-        new ParsingLoadable<>(dataSource, uri, C.DATA_TYPE_MANIFEST, new SsManifestParser());
-    loadable.load();
-    return loadable.getResult();
-  }
-
-  @Override
-  protected List<Segment> getSegments(DataSource dataSource, SsManifest manifest,
-      TrackKey[] keys, boolean allowIndexLoadErrors) throws InterruptedException, IOException {
+  protected List<Segment> getSegments(
+      DataSource dataSource, SsManifest manifest, boolean allowIncompleteList) {
     ArrayList<Segment> segments = new ArrayList<>();
-    for (TrackKey key : keys) {
-      StreamElement streamElement = manifest.streamElements[key.streamElementIndex];
-      for (int i = 0; i < streamElement.chunkCount; i++) {
-        segments.add(new Segment(streamElement.getStartTimeUs(i),
-            new DataSpec(streamElement.buildRequestUri(key.trackIndex, i))));
+    for (StreamElement streamElement : manifest.streamElements) {
+      for (int i = 0; i < streamElement.formats.length; i++) {
+        for (int j = 0; j < streamElement.chunkCount; j++) {
+          segments.add(
+              new Segment(
+                  streamElement.getStartTimeUs(j),
+                  new DataSpec(streamElement.buildRequestUri(i, j))));
+        }
       }
     }
     return segments;

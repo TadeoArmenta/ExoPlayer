@@ -11,37 +11,33 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-apply from: '../../constants.gradle'
-apply plugin: 'com.android.library'
+apply from: "$gradle.ext.exoplayerSettingsDir/common_library_config.gradle"
 
 android {
-    compileSdkVersion project.ext.compileSdkVersion
-    buildToolsVersion project.ext.buildToolsVersion
-
     defaultConfig {
-        minSdkVersion project.ext.minSdkVersion
-        targetSdkVersion project.ext.targetSdkVersion
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        // Enable multidex for androidTests.
+        multiDexEnabled true
+    }
+
+    sourceSets {
+        androidTest.assets.srcDir '../../testdata/src/test/assets/'
     }
 }
 
 dependencies {
-    compile project(modulePrefix + 'library-core')
-    // This dependency is necessary to force the supportLibraryVersion of
-    // com.android.support:support-v4 to be used. Else an older version (25.2.0)
-    // is included via:
-    // com.google.android.gms:play-services-ads:11.4.2
-    // |-- com.google.android.gms:play-services-ads-lite:11.4.2
-    //   |-- com.google.android.gms:play-services-basement:11.4.2
-    //     |-- com.android.support:support-v4:25.2.0
-    compile 'com.android.support:support-v4:' + supportLibraryVersion
-    compile 'com.google.ads.interactivemedia.v3:interactivemedia:3.7.4'
-    compile 'com.google.android.gms:play-services-ads:' + playServicesLibraryVersion
-    androidTestCompile project(modulePrefix + 'library')
-    androidTestCompile 'com.google.dexmaker:dexmaker:' + dexmakerVersion
-    androidTestCompile 'com.google.dexmaker:dexmaker-mockito:' + dexmakerVersion
-    androidTestCompile 'org.mockito:mockito-core:' + mockitoVersion
-    androidTestCompile 'com.android.support.test:runner:' + testSupportLibraryVersion
+    api 'com.google.ads.interactivemedia.v3:interactivemedia:3.22.0'
+    implementation project(modulePrefix + 'library-core')
+    implementation 'androidx.annotation:annotation:' + androidxAnnotationVersion
+    implementation 'com.google.android.gms:play-services-ads-identifier:17.0.0'
+    compileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion
+    compileOnly 'org.jetbrains.kotlin:kotlin-annotations-jvm:' + kotlinAnnotationsVersion
+    androidTestImplementation project(modulePrefix + 'testutils')
+    androidTestImplementation 'androidx.multidex:multidex:' + androidxMultidexVersion
+    androidTestImplementation 'androidx.test:rules:' + androidxTestRulesVersion
+    androidTestImplementation 'androidx.test:runner:' + androidxTestRunnerVersion
+    androidTestCompileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion
+    testImplementation project(modulePrefix + 'testutils')
+    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 }
 
 ext {
